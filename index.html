@@ -1,0 +1,657 @@
+<!DOCTYPE html>
+<html lang="es">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Reconocimiento de dígitos con una red neuronal</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: Calibri, 'Segoe UI', sans-serif; margin: 0; padding: 12px;
+         color: #222; background: #fafbfc; max-width: 1100px; margin: 0 auto; }
+  h1 { font-size: 20px; color: #185FA5; margin: 6px 0 12px; font-family: 'Segoe UI Semibold', sans-serif; }
+  .panel { background: #fff; border: 1px solid #e2e7ec; border-radius: 6px; padding: 12px; margin-bottom: 12px; }
+  .aviso { padding: 9px 12px; border-left: 4px solid #185FA5; background: #f3f6fa; font-size: 14px; border-radius: 3px; }
+  .aviso.ok   { border-left-color: #2E8B57; background: #f1f8f4; }
+  .aviso.malo { border-left-color: #E24B4A; background: #fdf1f1; }
+  .oculto { display: none !important; }
+
+  /* --- Camara --- */
+  #escena { position: relative; width: 100%; max-width: 420px; aspect-ratio: 1/1;
+            margin: 0 auto; background: #000; border-radius: 6px; overflow: hidden; }
+  #video, #congelado { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  #marco { position: absolute; pointer-events: none; }
+  #marco div { position: absolute; width: 26px; height: 26px; border: 3px solid #EF9F27; }
+  #marco .si { top: -3px; left: -3px;    border-right: none;  border-bottom: none; }
+  #marco .sd { top: -3px; right: -3px;   border-left: none;   border-bottom: none; }
+  #marco .ii { bottom: -3px; left: -3px; border-right: none;  border-top: none; }
+  #marco .id { bottom: -3px; right: -3px;border-left: none;   border-top: none; }
+
+  .controles { display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
+               justify-content: center; margin-top: 12px; }
+  button { font-family: inherit; font-size: 15px; padding: 9px 18px; border-radius: 5px;
+           border: 1px solid #185FA5; background: #185FA5; color: #fff; cursor: pointer; }
+  button.sec { background: #fff; color: #185FA5; }
+  button:disabled { opacity: .45; cursor: default; }
+  label.et { font-size: 14px; color: #555; }
+  input[type=range] { vertical-align: middle; width: 150px; }
+
+  /* --- Resultado --- */
+  #resultado { display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-start; }
+  #vista { text-align: center; font-size: 12px; color: #666; }
+  #cv28 { image-rendering: pixelated; border: 1px solid #ccc; background: #000; }
+  #tablero { flex: 1; min-width: 300px; }
+  #veredicto { font-size: 34px; font-weight: bold; color: #E24B4A;
+               font-family: 'Segoe UI Semibold', sans-serif; margin: 0 0 2px; }
+  #podio { font-size: 15px; color: #444; margin-bottom: 10px; }
+  #podio b { font-size: 17px; }
+  .barra { display: flex; align-items: center; gap: 8px; margin: 3px 0; font-size: 14px; }
+  .barra .dig { width: 18px; font-weight: bold; text-align: center; font-family: Consolas, monospace; }
+  .barra .pos { width: 26px; font-size: 12px; color: #888; }
+  .barra .riel { flex: 1; height: 18px; background: #eef1f4; border-radius: 3px; overflow: hidden; }
+  .barra .relleno { height: 100%; background: #cdd5dd; border-radius: 3px; transition: width .12s; }
+  .barra.p1 .relleno { background: #E24B4A; }
+  .barra.p2 .relleno { background: #EF9F27; }
+  .barra.p3 .relleno { background: #185FA5; }
+  .barra.p1 .pos { color: #E24B4A; font-weight: bold; }
+  .barra.p2 .pos { color: #BA7517; font-weight: bold; }
+  .barra.p3 .pos { color: #185FA5; font-weight: bold; }
+  .barra .val { width: 58px; text-align: right; font-family: Consolas, monospace;
+                font-size: 13px; color: #666; }
+</style>
+
+<h1>Reconocimiento de dígitos con una red neuronal</h1>
+
+<!-- ============================ MODELO ============================ -->
+<div class="panel" id="panelModelo">
+  <div style="margin-bottom:8px"><label class="et">Archivo .json</label>
+    <input type="file" id="fj" accept=".json"></div>
+  <div><label class="et">Archivo .bin</label>
+    <input type="file" id="fb" accept=".bin"></div>
+  <div id="estadoModelo" class="aviso" style="margin-top:10px">Seleccione los dos archivos del modelo.</div>
+</div>
+
+<!-- ============================ CAMARA ============================ -->
+<div class="panel oculto" id="panelCamara">
+  <div id="escena">
+    <video id="video" playsinline muted></video>
+    <canvas id="congelado" class="oculto"></canvas>
+    <div id="marco"><div class="si"></div><div class="sd"></div><div class="ii"></div><div class="id"></div></div>
+  </div>
+
+  <div class="controles">
+    <button id="bCongelar">Congelar</button>
+    <button id="bSeguir" class="sec oculto">Seguir</button>
+    <label class="et">Recuadro
+      <input type="range" id="cMarco" min="35" max="95" value="70">
+      <span id="vMarco">70%</span></label>
+  </div>
+
+  <div id="avisoCamara" class="aviso oculto" style="margin-top:10px"></div>
+
+  <div style="margin-top:10px; text-align:center">
+    <button class="sec" id="bAjustes" style="font-size:13px; padding:5px 12px">Ajustes</button>
+  </div>
+  <div id="ajustes" class="oculto" style="margin-top:10px; border-top:1px solid #e2e7ec; padding-top:10px">
+    <div style="font-size:13px; color:#555; margin-bottom:6px">
+      Imagenes de prueba tomadas de MNIST, dibujadas con el orden vigente.
+      Si los digitos se ven transpuestos, cambie la opcion de abajo.</div>
+    <div id="dorado" style="display:flex; gap:6px; flex-wrap:wrap"></div>
+    <div style="margin-top:8px; font-size:14px">
+      <label><input type="radio" name="orden" value="col"> por columnas</label>
+      &nbsp;&nbsp;
+      <label><input type="radio" name="orden" value="fila"> por renglones</label>
+    </div>
+  </div>
+  <div style="text-align:center; margin-top:10px">
+    <input type="file" id="ffoto" accept="image/*" capture="environment" class="oculto">
+  </div>
+</div>
+
+<!-- ============================ RESULTADO ============================ -->
+<div class="panel oculto" id="panelResultado">
+  <div id="resultado">
+    <div id="vista">
+      <canvas id="cv28" width="168" height="168"></canvas><br>lo que ve la red (28x28)
+    </div>
+    <div id="tablero">
+      <div id="veredicto">—</div>
+      <div id="podio"></div>
+      <div id="barras"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ===========================================================================
+// A. Modelo y paso hacia adelante   (verificado contra Octave en la Fase 1)
+//    z = (x - mu)*V ; h = tanh([1 z]*wu1) ; y = [1 h]*wu2 ; clase = argmax(y)
+// ===========================================================================
+let MODELO = null, ESCALA_MAX = 255, ORDEN_COLUMNAS = true;
+
+function activacion(nombre) {
+  if (nombre === 'tanh')  return Math.tanh;
+  if (nombre === 'relu')  return x => Math.max(0, x);
+  if (nombre === 'tanh2') return x => (Math.tanh(x) + 1) / 2;
+  throw new Error('activacion no soportada: ' + nombre);
+}
+
+function repartirPesos(M, buffer) {
+  const f32 = new Float32Array(buffer);
+  const { nx0, npc, H, ny } = M.meta;
+  const esperados = nx0 + nx0 * npc + (npc + 1) * H + (H + 1) * ny;
+  if (f32.length !== esperados) {
+    throw new Error('El .bin trae ' + f32.length + ' numeros y se esperaban ' + esperados +
+                    '. Los dos archivos deben venir de la misma corrida.');
+  }
+  let p = 0;
+  const tomar = (m, n) => { const A = [];
+    for (let i = 0; i < m; i++) { A.push(f32.subarray(p, p + n)); p += n; } return A; };
+  M.mu  = tomar(1, nx0)[0];
+  M.V   = tomar(nx0, npc);
+  M.wu1 = tomar(npc + 1, H);
+  M.wu2 = tomar(H + 1, ny);
+  return M;
+}
+
+function adelante(x, M) {
+  const fa = activacion(M.meta.ta);
+  const { nx0, npc, H, ny } = M.meta;
+  const z = new Float64Array(npc);
+  for (let i = 0; i < nx0; i++) {
+    const xc = x[i] - M.mu[i];
+    if (xc === 0) continue;
+    const fila = M.V[i];
+    for (let j = 0; j < npc; j++) z[j] += xc * fila[j];
+  }
+  const h = new Float64Array(H);
+  for (let j = 0; j < H; j++) h[j] = M.wu1[0][j];
+  for (let i = 0; i < npc; i++) {
+    const fila = M.wu1[i + 1], zi = z[i];
+    for (let j = 0; j < H; j++) h[j] += zi * fila[j];
+  }
+  for (let j = 0; j < H; j++) h[j] = fa(h[j]);
+  const y = new Float64Array(ny);
+  for (let k = 0; k < ny; k++) y[k] = M.wu2[0][k];
+  for (let j = 0; j < H; j++) {
+    const fila = M.wu2[j + 1], hj = h[j];
+    for (let k = 0; k < ny; k++) y[k] += hj * fila[k];
+  }
+  return y;
+}
+
+// ===========================================================================
+// B. Preprocesamiento: de imagen a vector de 784 valores tipo MNIST
+// ===========================================================================
+function otsu(hist, total) {
+  let suma = 0;
+  for (let i = 0; i < 256; i++) suma += i * hist[i];
+  let sumaB = 0, wB = 0, mejorVar = -1, tIni = 128, tFin = 128;
+  for (let t = 0; t < 256; t++) {
+    wB += hist[t];              if (wB === 0) continue;
+    const wF = total - wB;      if (wF === 0) break;
+    sumaB += t * hist[t];
+    const mB = sumaB / wB, mF = (suma - sumaB) / wF;
+    const varEntre = wB * wF * (mB - mF) * (mB - mF);
+    if (varEntre > mejorVar)        { mejorVar = varEntre; tIni = t; tFin = t; }
+    else if (varEntre === mejorVar) { tFin = t; }
+  }
+  return Math.round((tIni + tFin) / 2);
+}
+
+// Conserva las componentes cuya area sea al menos una fraccion de la mayor:
+// elimina motas sin destruir digitos trazados en dos golpes.
+function limpiarComponentes(mask, w, h, fraccion) {
+  const etiq = new Int32Array(w * h).fill(-1);
+  const cola = new Int32Array(w * h);
+  const areas = [];
+  let ne = 0;
+  for (let s = 0; s < w * h; s++) {
+    if (mask[s] === 0 || etiq[s] !== -1) continue;
+    let ini = 0, fin = 0;
+    cola[fin++] = s; etiq[s] = ne;
+    let area = 0;
+    while (ini < fin) {
+      const p = cola[ini++]; area++;
+      const px = p % w, py = (p / w) | 0;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const qx = px + dx, qy = py + dy;
+        if (qx < 0 || qy < 0 || qx >= w || qy >= h) continue;
+        const q = qy * w + qx;
+        if (mask[q] === 1 && etiq[q] === -1) { etiq[q] = ne; cola[fin++] = q; }
+      }
+    }
+    areas.push(area); ne++;
+  }
+  if (ne === 0) return { mask, nComp: 0 };
+  const mayor = Math.max.apply(null, areas);
+  const vive = areas.map(a => a >= fraccion * mayor);
+  const salida = new Uint8Array(w * h);
+  let vivas = 0;
+  vive.forEach(v => { if (v) vivas++; });
+  for (let s = 0; s < w * h; s++) if (mask[s] === 1 && vive[etiq[s]]) salida[s] = 1;
+  return { mask: salida, nComp: vivas };
+}
+
+function dilatar(mask, w, h, veces) {
+  let a = mask;
+  for (let it = 0; it < veces; it++) {
+    const b = new Uint8Array(w * h);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const s = y * w + x;
+      if (a[s] === 1 ||
+          (x > 0     && a[s - 1] === 1) || (x < w - 1 && a[s + 1] === 1) ||
+          (y > 0     && a[s - w] === 1) || (y < h - 1 && a[s + w] === 1)) b[s] = 1;
+    }
+    a = b;
+  }
+  return a;
+}
+
+function medirCaja(mask, W) {
+  let x0 = W, y0 = W, x1 = -1, y1 = -1, tinta = 0;
+  for (let y = 0; y < W; y++) for (let x = 0; x < W; x++) {
+    if (mask[y * W + x] === 1) {
+      tinta++;
+      if (x < x0) x0 = x; if (x > x1) x1 = x;
+      if (y < y0) y0 = y; if (y > y1) y1 = y;
+    }
+  }
+  if (x1 < 0) return null;
+  return { x0, y0, x1, y1, bw: x1 - x0 + 1, bh: y1 - y0 + 1, tinta };
+}
+
+// Cadena completa. 'recortePct' recorta el cuadrado central, que es justo la
+// region que el recuadro naranja marca en la pantalla.
+function imagenAVector(imagen, recortePct) {
+  const lado = Math.min(imagen.width, imagen.height) * (recortePct / 100);
+  const sx = (imagen.width - lado) / 2, sy = (imagen.height - lado) / 2;
+  const W = 280;
+  const cw = document.createElement('canvas'); cw.width = W; cw.height = W;
+  const gw = cw.getContext('2d', { willReadFrequently: true });
+  gw.drawImage(imagen, sx, sy, lado, lado, 0, 0, W, W);
+  const datos = gw.getImageData(0, 0, W, W).data;
+
+  const gris = new Uint8Array(W * W), hist = new Uint32Array(256);
+  for (let i = 0, s = 0; i < datos.length; i += 4, s++) {
+    const g = (0.299 * datos[i] + 0.587 * datos[i + 1] + 0.114 * datos[i + 2]) | 0;
+    gris[s] = g; hist[g]++;
+  }
+  const umbral = otsu(hist, W * W);
+
+  // La tinta es la clase minoritaria: el trazo siempre ocupa menos que el papel.
+  let nOscuros = 0;
+  for (let s = 0; s < W * W; s++) if (gris[s] <= umbral) nOscuros++;
+  const tintaEsOscura = nOscuros <= W * W / 2;
+  let mask = new Uint8Array(W * W);
+  for (let s = 0; s < W * W; s++) {
+    mask[s] = (tintaEsOscura ? (gris[s] <= umbral) : (gris[s] > umbral)) ? 1 : 0;
+  }
+
+  // Engrosar ANTES de limpiar: un trazo con huecos se une primero y la
+  // limpieza solo descarta motas de verdad.
+  const cajaPrev = medirCaja(mask, W);
+  if (!cajaPrev) return { error: 'No se detecta ningun trazo.' };
+  const dil = Math.max(0, Math.round(Math.max(cajaPrev.bw, cajaPrev.bh) / 45));
+  if (dil > 0) mask = dilatar(mask, W, W, dil);
+  const limpio = limpiarComponentes(mask, W, W, 0.15);
+  mask = limpio.mask;
+
+  const caja = medirCaja(mask, W);
+  if (!caja) return { error: 'No quedo trazo despues de limpiar.' };
+  const { x0, y0, bw, bh } = caja;
+  const tocaBorde = (caja.x0 <= 1) || (caja.y0 <= 1) || (caja.x1 >= W - 2) || (caja.y1 >= W - 2);
+
+  // Trazo claro sobre fondo oscuro, como MNIST
+  const cb = document.createElement('canvas'); cb.width = bw; cb.height = bh;
+  const gb = cb.getContext('2d', { willReadFrequently: true });
+  const imgb = gb.createImageData(bw, bh);
+  for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
+    const v = mask[(y0 + y) * W + (x0 + x)] === 1 ? 255 : 0;
+    const d = (y * bw + x) * 4;
+    imgb.data[d] = imgb.data[d + 1] = imgb.data[d + 2] = v;
+    imgb.data[d + 3] = 255;
+  }
+  gb.putImageData(imgb, 0, 0);
+
+  // Ajuste a caja de 20x20 conservando proporcion
+  const escala = 20 / Math.max(bw, bh);
+  const nw = Math.max(1, Math.round(bw * escala)), nh = Math.max(1, Math.round(bh * escala));
+  const c20 = document.createElement('canvas'); c20.width = nw; c20.height = nh;
+  const g20 = c20.getContext('2d', { willReadFrequently: true });
+  g20.imageSmoothingEnabled = true; g20.imageSmoothingQuality = 'high';
+  g20.filter = 'blur(0.4px)';
+  g20.drawImage(cb, 0, 0, nw, nh);
+  const d20 = g20.getImageData(0, 0, nw, nh).data;
+
+  // Intensidad plena: en MNIST el trazo satura cerca de 255
+  let vmax = 0;
+  for (let i = 0; i < d20.length; i += 4) if (d20[i] > vmax) vmax = d20[i];
+  if (vmax > 0 && vmax < 255) {
+    const f = 255 / vmax;
+    for (let i = 0; i < d20.length; i += 4) {
+      const v = Math.min(255, d20[i] * f);
+      d20[i] = d20[i + 1] = d20[i + 2] = v;
+    }
+  }
+
+  // Centro de masa al centro del lienzo de 28x28
+  let masa = 0, cx = 0, cy = 0;
+  for (let y = 0; y < nh; y++) for (let x = 0; x < nw; x++) {
+    const v = d20[(y * nw + x) * 4];
+    masa += v; cx += x * v; cy += y * v;
+  }
+  cx = masa > 0 ? cx / masa : nw / 2;
+  cy = masa > 0 ? cy / masa : nh / 2;
+
+  const off = new Float64Array(784);
+  const dx = Math.round(14 - cx), dy = Math.round(14 - cy);
+  for (let y = 0; y < nh; y++) for (let x = 0; x < nw; x++) {
+    const tx = x + dx, ty = y + dy;
+    if (tx < 0 || ty < 0 || tx > 27 || ty > 27) continue;
+    off[ty * 28 + tx] = d20[(y * nw + x) * 4];
+  }
+
+  // Aplanado en el orden con que se entreno la red
+  const vec = new Float64Array(784);
+  for (let f = 0; f < 28; f++) for (let c = 0; c < 28; c++) {
+    const destino = ORDEN_COLUMNAS ? (c * 28 + f) : (f * 28 + c);
+    vec[destino] = off[f * 28 + c] * (ESCALA_MAX / 255);
+  }
+  return { vec, imagen28: off, tocaBorde, tinta: caja.tinta / (W * W) };
+}
+
+// ===========================================================================
+// C. Presentacion del resultado
+// ===========================================================================
+function dibujar28(canvas, arreglo) {
+  const chico = document.createElement('canvas'); chico.width = 28; chico.height = 28;
+  const gc = chico.getContext('2d');
+  const img = gc.createImageData(28, 28);
+  for (let s = 0; s < 784; s++) {
+    const v = Math.max(0, Math.min(255, Math.round(arreglo[s])));
+    img.data[s * 4] = img.data[s * 4 + 1] = img.data[s * 4 + 2] = v;
+    img.data[s * 4 + 3] = 255;
+  }
+  gc.putImageData(img, 0, 0);
+  const g = canvas.getContext('2d');
+  g.imageSmoothingEnabled = false;
+  g.clearRect(0, 0, canvas.width, canvas.height);
+  g.drawImage(chico, 0, 0, canvas.width, canvas.height);
+}
+
+const ORDINAL = ['1º', '2º', '3º'];
+
+function mostrarResultado(y) {
+  // Ranking: indices ordenados de mayor a menor salida
+  const orden = Array.from(y.keys()).sort((a, b) => y[b] - y[a]);
+  const rango = new Array(y.length).fill(-1);
+  for (let r = 0; r < 3; r++) rango[orden[r]] = r;
+
+  document.getElementById('veredicto').textContent = 'El modelo dice: ' + orden[0];
+
+  document.getElementById('podio').innerHTML = ORDINAL.map((o, r) =>
+    '<span>' + o + ' <b>' + orden[r] + '</b> (' + y[orden[r]].toFixed(3) + ')</span>'
+  ).join(' &nbsp;·&nbsp; ');
+
+  // Escala comun para las barras: de la salida minima a la maxima
+  const lo = Math.min(0, Math.min.apply(null, Array.from(y)));
+  const hi = Math.max(1, Math.max.apply(null, Array.from(y)));
+  const cont = document.getElementById('barras');
+  if (cont.children.length !== y.length) {
+    cont.innerHTML = '';
+    for (let k = 0; k < y.length; k++) {
+      const d = document.createElement('div');
+      d.innerHTML = '<span class="pos"></span><span class="dig">' + k + '</span>' +
+                    '<span class="riel"><span class="relleno"></span></span>' +
+                    '<span class="val"></span>';
+      cont.appendChild(d);
+    }
+  }
+  for (let k = 0; k < y.length; k++) {
+    const fila = cont.children[k];
+    const r = rango[k];
+    fila.className = 'barra' + (r >= 0 ? ' p' + (r + 1) : '');
+    fila.querySelector('.pos').textContent = r >= 0 ? ORDINAL[r] : '';
+    fila.querySelector('.relleno').style.width = (100 * (y[k] - lo) / (hi - lo)).toFixed(1) + '%';
+    fila.querySelector('.val').textContent = y[k].toFixed(3);
+  }
+}
+
+// ===========================================================================
+// D. Camara y ciclo de clasificacion
+// ===========================================================================
+const video = document.getElementById('video');
+const congelado = document.getElementById('congelado');
+const marco = document.getElementById('marco');
+const escena = document.getElementById('escena');
+let flujo = null, corriendo = false, ultimo = 0, imagenFija = null;
+
+function pctMarco() { return +document.getElementById('cMarco').value; }
+
+function colocarMarco() {
+  const p = pctMarco() / 100;
+  const lado = escena.clientWidth * p;
+  marco.style.width = lado + 'px';
+  marco.style.height = lado + 'px';
+  marco.style.left = ((escena.clientWidth - lado) / 2) + 'px';
+  marco.style.top  = ((escena.clientHeight - lado) / 2) + 'px';
+  document.getElementById('vMarco').textContent = pctMarco() + '%';
+}
+
+// Toma el cuadro actual del video a resolucion nativa
+function cuadroActual() {
+  const vw = video.videoWidth, vh = video.videoHeight;
+  if (!vw || !vh) return null;
+  const c = document.createElement('canvas');
+  c.width = vw; c.height = vh;
+  c.getContext('2d').drawImage(video, 0, 0);
+  return c;
+}
+
+function clasificar(imagen) {
+  if (!MODELO || !imagen) return;
+  const r = imagenAVector(imagen, pctMarco());
+  const av = document.getElementById('avisoCamara');
+  if (r.error) {
+    av.className = 'aviso malo'; av.textContent = r.error; av.classList.remove('oculto');
+    return;
+  }
+  document.getElementById('panelResultado').classList.remove('oculto');
+  dibujar28(document.getElementById('cv28'), r.imagen28);
+  mostrarResultado(adelante(r.vec, MODELO));
+  if (r.tocaBorde) {
+    av.className = 'aviso malo';
+    av.textContent = 'El trazo llega al borde del recuadro. Aleje un poco la camara o amplie el recuadro.';
+    av.classList.remove('oculto');
+  } else {
+    av.classList.add('oculto');
+  }
+}
+
+function ciclo(t) {
+  if (!corriendo) return;
+  if (t - ultimo > 250) {           // unas cuatro clasificaciones por segundo
+    ultimo = t;
+    clasificar(cuadroActual());
+  }
+  requestAnimationFrame(ciclo);
+}
+
+async function iniciarCamara() {
+  const av = document.getElementById('avisoCamara');
+  try {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      throw new Error('sin API de camara');
+    }
+    flujo = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 1280 } },
+      audio: false
+    });
+    video.srcObject = flujo;
+    await video.play();
+    colocarMarco();
+    corriendo = true;
+    requestAnimationFrame(ciclo);
+  } catch (err) {
+    // Sin camara en vivo se recurre a tomar una foto, que no exige HTTPS.
+    av.className = 'aviso malo';
+    av.innerHTML = 'No se pudo abrir la camara en vivo (' + err.message + ').<br>' +
+      'La camara en vivo exige que la pagina se sirva por HTTPS o desde localhost. ' +
+      'Mientras tanto puede tomar una foto:';
+    av.classList.remove('oculto');
+    document.getElementById('ffoto').classList.remove('oculto');
+    document.getElementById('bCongelar').classList.add('oculto');
+    video.classList.add('oculto');
+  }
+}
+
+document.getElementById('bCongelar').addEventListener('click', () => {
+  const c = cuadroActual();
+  if (!c) return;
+  corriendo = false;
+  congelado.width = c.width; congelado.height = c.height;
+  congelado.getContext('2d').drawImage(c, 0, 0);
+  congelado.classList.remove('oculto');
+  video.classList.add('oculto');
+  imagenFija = c;
+  clasificar(c);
+  document.getElementById('bCongelar').classList.add('oculto');
+  document.getElementById('bSeguir').classList.remove('oculto');
+});
+
+document.getElementById('bSeguir').addEventListener('click', () => {
+  imagenFija = null;
+  congelado.classList.add('oculto');
+  video.classList.remove('oculto');
+  document.getElementById('bSeguir').classList.add('oculto');
+  document.getElementById('bCongelar').classList.remove('oculto');
+  corriendo = true;
+  requestAnimationFrame(ciclo);
+});
+
+document.getElementById('bAjustes').addEventListener('click', () => {
+  document.getElementById('ajustes').classList.toggle('oculto');
+});
+
+document.querySelectorAll('input[name=orden]').forEach(r => r.addEventListener('change', e => {
+  ORDEN_COLUMNAS = (e.target.value === 'col');
+  dibujarDorado();
+  if (imagenFija) clasificar(imagenFija);
+}));
+
+document.getElementById('cMarco').addEventListener('input', () => {
+  colocarMarco();
+  if (imagenFija) clasificar(imagenFija);
+});
+window.addEventListener('resize', colocarMarco);
+
+document.getElementById('ffoto').addEventListener('change', async e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const bmp = await createImageBitmap(f, { imageOrientation: 'from-image' });
+  const c = document.createElement('canvas');
+  c.width = bmp.width; c.height = bmp.height;
+  c.getContext('2d').drawImage(bmp, 0, 0);
+  congelado.width = c.width; congelado.height = c.height;
+  congelado.getContext('2d').drawImage(c, 0, 0);
+  congelado.classList.remove('oculto');
+  imagenFija = c;
+  colocarMarco();
+  clasificar(c);
+});
+
+// ===========================================================================
+// E. Carga del modelo
+// ===========================================================================
+let archJson = null, archBin = null;
+document.getElementById('fj').addEventListener('change', e => { archJson = e.target.files[0]; cargarModelo(); });
+document.getElementById('fb').addEventListener('change', e => { archBin  = e.target.files[0]; cargarModelo(); });
+
+// Deduce el orden de aplanado a partir de la forma de los digitos del conjunto
+// dorado. En MNIST el trazo se normaliza dentro de una caja de 20x20
+// conservando la proporcion, y la mayoria de los digitos son mas altos que
+// anchos; al leerlos en el orden equivocado la imagen queda transpuesta y esa
+// relacion se invierte. El resultado se muestra en pantalla para confirmarlo a
+// simple vista, porque diez imagenes son pocas para fiarse solo del conteo.
+function deducirOrden(M) {
+  let puntos = 0;
+  for (const x of M.Xgold) {
+    for (const porColumnas of [false, true]) {
+      let f0 = 28, f1 = -1, c0 = 28, c1 = -1;
+      for (let f = 0; f < 28; f++) for (let c = 0; c < 28; c++) {
+        const v = x[porColumnas ? (c * 28 + f) : (f * 28 + c)];
+        if (v > 0.2 * ESCALA_MAX) {
+          if (f < f0) f0 = f; if (f > f1) f1 = f;
+          if (c < c0) c0 = c; if (c > c1) c1 = c;
+        }
+      }
+      if (f1 < 0) continue;
+      const masAltoQueAncho = (f1 - f0) > (c1 - c0);
+      puntos += (porColumnas ? 1 : -1) * (masAltoQueAncho ? 1 : -1);
+    }
+  }
+  return puntos > 0;   // true = por columnas
+}
+
+// Dibuja las imagenes del conjunto dorado con el orden vigente, para que se
+// pueda confirmar de un vistazo que los digitos se ven bien y no transpuestos.
+function dibujarDorado() {
+  const cont = document.getElementById('dorado');
+  cont.innerHTML = '';
+  MODELO.Xgold.forEach((x, n) => {
+    const arr = new Float64Array(784);
+    for (let f = 0; f < 28; f++) for (let c = 0; c < 28; c++) {
+      const origen = ORDEN_COLUMNAS ? (c * 28 + f) : (f * 28 + c);
+      arr[f * 28 + c] = x[origen] * (255 / ESCALA_MAX);
+    }
+    const cv = document.createElement('canvas');
+    cv.width = 44; cv.height = 44;
+    cv.style.border = '1px solid #ccc';
+    dibujar28(cv, arr);
+    const caja = document.createElement('div');
+    caja.style.cssText = 'text-align:center;font-size:11px;color:#666';
+    caja.appendChild(cv);
+    caja.appendChild(document.createElement('br'));
+    caja.appendChild(document.createTextNode(String(MODELO.etiqGold[n])));
+    cont.appendChild(caja);
+  });
+}
+
+async function cargarModelo() {
+  const est = document.getElementById('estadoModelo');
+  if (!archJson || !archBin) { est.textContent = 'Falta un archivo del modelo.'; return; }
+  try {
+    MODELO = repartirPesos(JSON.parse(await archJson.text()), await archBin.arrayBuffer());
+    let mx = 0;
+    for (const fila of MODELO.Xgold) for (const v of fila) if (v > mx) mx = v;
+    ESCALA_MAX = mx > 1.5 ? 255 : 1;
+    ORDEN_COLUMNAS = deducirOrden(MODELO);
+
+    // Comprobacion contra las salidas que calculo Octave
+    let maxDif = 0, ok = 0;
+    for (let n = 0; n < MODELO.Xgold.length; n++) {
+      const y = adelante(MODELO.Xgold[n], MODELO);
+      let mejor = 0;
+      for (let k = 1; k < y.length; k++) if (y[k] > y[mejor]) mejor = k;
+      if (mejor === MODELO.clGold[n]) ok++;
+      for (let k = 0; k < y.length; k++) maxDif = Math.max(maxDif, Math.abs(y[k] - MODELO.Ygold[n][k]));
+    }
+    const sano = (ok === MODELO.Xgold.length) && (maxDif < 1e-2);
+    est.className = 'aviso ' + (sano ? 'ok' : 'malo');
+    est.textContent = 'Modelo: ' + MODELO.meta.nx0 + ' pixeles, ' + MODELO.meta.npc +
+      ' componentes principales, ' + MODELO.meta.H + ' neuronas ocultas. Eficiencia de prueba ' +
+      MODELO.meta.efTest + '%. Verificacion contra Octave: ' + ok + '/' + MODELO.Xgold.length +
+      ' clases, diferencia maxima ' + maxDif.toExponential(1) +
+      '. Orden de pixeles: ' + (ORDEN_COLUMNAS ? 'por columnas' : 'por renglones') + '.';
+
+    document.querySelector('input[name=orden][value="' + (ORDEN_COLUMNAS ? 'col' : 'fila') + '"]').checked = true;
+    dibujarDorado();
+    document.getElementById('panelModelo').classList.add('oculto');
+    document.getElementById('panelCamara').classList.remove('oculto');
+    iniciarCamara();
+  } catch (err) {
+    est.className = 'aviso malo';
+    est.textContent = 'Error: ' + err.message;
+  }
+}
+</script>
+</html>
