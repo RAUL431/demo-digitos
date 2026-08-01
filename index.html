@@ -58,9 +58,13 @@
   .barra .dig { width: 15px; font-weight: bold; text-align: center; font-family: Consolas, monospace; }
   .barra .pos { width: 22px; font-size: 11px; color: #888; }
   /* Riel corto: la barra solo necesita mostrar la proporcion, no llenar el ancho */
-  .barra .riel { flex: 0 1 200px; height: 14px; background: #eef1f4;
+  .barra .riel { display: block; flex: 0 1 200px; height: 14px; background: #eef1f4;
                  border-radius: 3px; overflow: hidden; }
-  .barra .relleno { height: 100%; background: #cdd5dd; border-radius: 3px; transition: width .12s; }
+  /* display:block es indispensable: un span es un elemento en linea y como tal
+     ignora las propiedades de ancho y alto, de modo que el relleno nunca se
+     dibujaria por mucho que se le asigne el porcentaje. */
+  .barra .relleno { display: block; width: 0; height: 100%; background: #c3ccd6;
+                    border-radius: 3px; transition: width .12s; }
   .barra.p1 .relleno { background: #E24B4A; }
   .barra.p2 .relleno { background: #EF9F27; }
   .barra.p3 .relleno { background: #185FA5; }
