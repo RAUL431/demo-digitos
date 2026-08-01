@@ -5,17 +5,27 @@
 <title>Reconocimiento de dígitos con una red neuronal</title>
 <style>
   * { box-sizing: border-box; }
-  body { font-family: Calibri, 'Segoe UI', sans-serif; margin: 0; padding: 12px;
-         color: #222; background: #fafbfc; max-width: 1100px; margin: 0 auto; }
-  h1 { font-size: 20px; color: #185FA5; margin: 6px 0 12px; font-family: 'Segoe UI Semibold', sans-serif; }
-  .panel { background: #fff; border: 1px solid #e2e7ec; border-radius: 6px; padding: 12px; margin-bottom: 12px; }
+  body { font-family: Calibri, 'Segoe UI', sans-serif; margin: 0 auto; padding: 8px 12px;
+         color: #222; background: #fafbfc; max-width: 1400px; }
+  h1 { font-size: 17px; color: #185FA5; margin: 2px 0 8px; font-family: 'Segoe UI Semibold', sans-serif; }
+  .panel { background: #fff; border: 1px solid #e2e7ec; border-radius: 6px; padding: 10px; margin-bottom: 10px; }
+
+  /* En pantalla ancha (tablet acostada) la camara va a la izquierda y el
+     resultado a la derecha, para aprovechar el alto disponible. */
+  #principal { display: flex; gap: 12px; align-items: flex-start; }
+  #panelCamara   { flex: 0 0 auto; width: min(44vw, 400px); margin-bottom: 0; }
+  #panelResultado{ flex: 1 1 340px; margin-bottom: 0; }
+  @media (max-width: 780px) {
+    #principal { display: block; }
+    #panelCamara { width: 100%; margin-bottom: 10px; }
+  }
   .aviso { padding: 9px 12px; border-left: 4px solid #185FA5; background: #f3f6fa; font-size: 14px; border-radius: 3px; }
   .aviso.ok   { border-left-color: #2E8B57; background: #f1f8f4; }
   .aviso.malo { border-left-color: #E24B4A; background: #fdf1f1; }
   .oculto { display: none !important; }
 
   /* --- Camara --- */
-  #escena { position: relative; width: 100%; max-width: 420px; aspect-ratio: 1/1;
+  #escena { position: relative; width: 100%; aspect-ratio: 1/1;
             margin: 0 auto; background: #000; border-radius: 6px; overflow: hidden; }
   #video, #congelado { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
   #marco { position: absolute; pointer-events: none; }
@@ -35,18 +45,21 @@
   input[type=range] { vertical-align: middle; width: 150px; }
 
   /* --- Resultado --- */
-  #resultado { display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-start; }
-  #vista { text-align: center; font-size: 12px; color: #666; }
-  #cv28 { image-rendering: pixelated; border: 1px solid #ccc; background: #000; }
-  #tablero { flex: 1; min-width: 300px; }
-  #veredicto { font-size: 34px; font-weight: bold; color: #E24B4A;
-               font-family: 'Segoe UI Semibold', sans-serif; margin: 0 0 2px; }
-  #podio { font-size: 15px; color: #444; margin-bottom: 10px; }
-  #podio b { font-size: 17px; }
-  .barra { display: flex; align-items: center; gap: 8px; margin: 3px 0; font-size: 14px; }
-  .barra .dig { width: 18px; font-weight: bold; text-align: center; font-family: Consolas, monospace; }
-  .barra .pos { width: 26px; font-size: 12px; color: #888; }
-  .barra .riel { flex: 1; height: 18px; background: #eef1f4; border-radius: 3px; overflow: hidden; }
+  #resultado { display: block; }
+  #cabecera { display: flex; gap: 14px; align-items: center; margin-bottom: 8px; }
+  #vista { text-align: center; font-size: 11px; color: #666; flex: 0 0 auto; }
+  #cv28 { image-rendering: pixelated; border: 1px solid #ccc; background: #000;
+          width: 96px; height: 96px; }
+  #veredicto { font-size: 27px; font-weight: bold; color: #E24B4A;
+               font-family: 'Segoe UI Semibold', sans-serif; margin: 0 0 3px; line-height: 1.1; }
+  #podio { font-size: 14px; color: #444; }
+  #podio b { font-size: 16px; }
+  .barra { display: flex; align-items: center; gap: 7px; margin: 1px 0; font-size: 13px; }
+  .barra .dig { width: 15px; font-weight: bold; text-align: center; font-family: Consolas, monospace; }
+  .barra .pos { width: 22px; font-size: 11px; color: #888; }
+  /* Riel corto: la barra solo necesita mostrar la proporcion, no llenar el ancho */
+  .barra .riel { flex: 0 1 200px; height: 14px; background: #eef1f4;
+                 border-radius: 3px; overflow: hidden; }
   .barra .relleno { height: 100%; background: #cdd5dd; border-radius: 3px; transition: width .12s; }
   .barra.p1 .relleno { background: #E24B4A; }
   .barra.p2 .relleno { background: #EF9F27; }
@@ -54,21 +67,24 @@
   .barra.p1 .pos { color: #E24B4A; font-weight: bold; }
   .barra.p2 .pos { color: #BA7517; font-weight: bold; }
   .barra.p3 .pos { color: #185FA5; font-weight: bold; }
-  .barra .val { width: 58px; text-align: right; font-family: Consolas, monospace;
-                font-size: 13px; color: #666; }
+  .barra .val { width: 52px; text-align: right; font-family: Consolas, monospace;
+                font-size: 12px; color: #666; }
 </style>
 
 <h1>Reconocimiento de dígitos con una red neuronal</h1>
 
 <!-- ============================ MODELO ============================ -->
 <div class="panel" id="panelModelo">
-  <div style="margin-bottom:8px"><label class="et">Archivo .json</label>
-    <input type="file" id="fj" accept=".json"></div>
-  <div><label class="et">Archivo .bin</label>
-    <input type="file" id="fb" accept=".bin"></div>
-  <div id="estadoModelo" class="aviso" style="margin-top:10px">Seleccione los dos archivos del modelo.</div>
+  <div id="selectores" class="oculto">
+    <div style="margin-bottom:8px"><label class="et">Archivo .json</label>
+      <input type="file" id="fj" accept=".json"></div>
+    <div><label class="et">Archivo .bin</label>
+      <input type="file" id="fb" accept=".bin"></div>
+  </div>
+  <div id="estadoModelo" class="aviso" style="margin-top:10px">Cargando el modelo...</div>
 </div>
 
+<div id="principal">
 <!-- ============================ CAMARA ============================ -->
 <div class="panel oculto" id="panelCamara">
   <div id="escena">
@@ -109,15 +125,18 @@
 <!-- ============================ RESULTADO ============================ -->
 <div class="panel oculto" id="panelResultado">
   <div id="resultado">
-    <div id="vista">
-      <canvas id="cv28" width="168" height="168"></canvas><br>lo que ve la red (28x28)
+    <div id="cabecera">
+      <div id="vista">
+        <canvas id="cv28" width="168" height="168"></canvas><br>lo que ve la red
+      </div>
+      <div>
+        <div id="veredicto">—</div>
+        <div id="podio"></div>
+      </div>
     </div>
-    <div id="tablero">
-      <div id="veredicto">—</div>
-      <div id="podio"></div>
-      <div id="barras"></div>
-    </div>
+    <div id="barras"></div>
   </div>
+</div>
 </div>
 
 <script>
@@ -619,8 +638,31 @@ function dibujarDorado() {
 async function cargarModelo() {
   const est = document.getElementById('estadoModelo');
   if (!archJson || !archBin) { est.textContent = 'Falta un archivo del modelo.'; return; }
+  montarModelo(JSON.parse(await archJson.text()), await archBin.arrayBuffer());
+}
+
+// Intenta tomar el modelo de archivos publicados junto a esta pagina. Si no
+// estan disponibles (por ejemplo al abrir la pagina desde el disco), se
+// ofrecen los selectores de archivo.
+async function cargarModeloDelServidor() {
+  const est = document.getElementById('estadoModelo');
   try {
-    MODELO = repartirPesos(JSON.parse(await archJson.text()), await archBin.arrayBuffer());
+    est.textContent = 'Cargando el modelo...';
+    const [rj, rb] = await Promise.all([fetch('modelo_demo.json'), fetch('modelo_demo.bin')]);
+    if (!rj.ok || !rb.ok) throw new Error('no publicados');
+    montarModelo(await rj.json(), await rb.arrayBuffer());
+    return true;
+  } catch (err) {
+    est.textContent = 'Seleccione los dos archivos del modelo.';
+    document.getElementById('selectores').classList.remove('oculto');
+    return false;
+  }
+}
+
+function montarModelo(meta, buffer) {
+  const est = document.getElementById('estadoModelo');
+  try {
+    MODELO = repartirPesos(meta, buffer);
     let mx = 0;
     for (const fila of MODELO.Xgold) for (const v of fila) if (v > mx) mx = v;
     ESCALA_MAX = mx > 1.5 ? 255 : 1;
@@ -651,7 +693,10 @@ async function cargarModelo() {
   } catch (err) {
     est.className = 'aviso malo';
     est.textContent = 'Error: ' + err.message;
+    document.getElementById('selectores').classList.remove('oculto');
   }
 }
+
+cargarModeloDelServidor();
 </script>
 </html>
