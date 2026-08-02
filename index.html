@@ -25,7 +25,7 @@
   .oculto { display: none !important; }
 
   /* --- Camara --- */
-  #escena { position: relative; width: 100%; aspect-ratio: 1/1;
+  #escena { position: relative; width: 100%; aspect-ratio: 1/1; touch-action: none; cursor: crosshair;
             margin: 0 auto; background: #000; border-radius: 6px; overflow: hidden; }
   #video, #congelado { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
   #marco { position: absolute; pointer-events: none; }
@@ -100,11 +100,14 @@
   <div class="controles">
     <button id="bCongelar">Congelar</button>
     <button id="bSeguir" class="sec oculto">Seguir</button>
+    <button id="bCentrar" class="sec">Centrar</button>
     <label class="et">Recuadro
-      <input type="range" id="cMarco" min="35" max="95" value="70">
-      <span id="vMarco">70%</span></label>
+      <input type="range" id="cMarco" min="20" max="95" value="50">
+      <span id="vMarco">50%</span></label>
   </div>
 
+  <div style="text-align:center; font-size:12px; color:#777; margin-top:6px">
+    Toque o arrastre sobre la imagen para colocar el recuadro donde este el numero.</div>
   <div id="avisoCamara" class="aviso oculto" style="margin-top:10px"></div>
 
   <div style="margin-top:10px; text-align:center">
@@ -282,11 +285,23 @@ function medirCaja(mask, W) {
   return { x0, y0, x1, y1, bw: x1 - x0 + 1, bh: y1 - y0 + 1, tinta };
 }
 
-// Cadena completa. 'recortePct' recorta el cuadrado central, que es justo la
-// region que el recuadro naranja marca en la pantalla.
-function imagenAVector(imagen, recortePct) {
-  const lado = Math.min(imagen.width, imagen.height) * (recortePct / 100);
-  const sx = (imagen.width - lado) / 2, sy = (imagen.height - lado) / 2;
+// Cadena completa. Recorta el cuadrado que el recuadro naranja marca en la
+// pantalla: 'recortePct' da su tamano y (cx,cy) su centro, ambos expresados
+// como fraccion de la region visible.
+//
+// Sobre la geometria: el video se muestra con object-fit cover dentro de un
+// marco cuadrado, asi que lo que se ve en pantalla es exactamente el cuadrado
+// central de la imagen, de lado min(ancho,alto). Las fracciones (fx,fy) se
+// refieren a ese cuadrado visible, no a la imagen completa; por eso se suma el
+// desplazamiento (ox,oy) al convertirlas a coordenadas de la imagen.
+function imagenAVector(imagen, recortePct, fx, fy) {
+  const base = Math.min(imagen.width, imagen.height);
+  const ox = (imagen.width  - base) / 2;
+  const oy = (imagen.height - base) / 2;
+  const p = recortePct / 100;
+  const lado = base * p;
+  const sx = ox + (fx - p / 2) * base;
+  const sy = oy + (fy - p / 2) * base;
   const W = 280;
   const cw = document.createElement('canvas'); cw.width = W; cw.height = W;
   const gw = cw.getContext('2d', { willReadFrequently: true });
@@ -450,15 +465,53 @@ let flujo = null, corriendo = false, ultimo = 0, imagenFija = null;
 
 function pctMarco() { return +document.getElementById('cMarco').value; }
 
+// Centro del recuadro como fraccion de la region visible. Arranca en el medio.
+let CX = 0.5, CY = 0.5;
+
+// Mantiene el recuadro dentro de la region visible: su centro no puede
+// acercarse al borde mas de la mitad de su propio lado.
+function acotarCentro() {
+  const m = pctMarco() / 200;
+  CX = Math.min(1 - m, Math.max(m, CX));
+  CY = Math.min(1 - m, Math.max(m, CY));
+}
+
 function colocarMarco() {
+  acotarCentro();
   const p = pctMarco() / 100;
   const lado = escena.clientWidth * p;
   marco.style.width = lado + 'px';
   marco.style.height = lado + 'px';
-  marco.style.left = ((escena.clientWidth - lado) / 2) + 'px';
-  marco.style.top  = ((escena.clientHeight - lado) / 2) + 'px';
+  marco.style.left = (CX * escena.clientWidth  - lado / 2) + 'px';
+  marco.style.top  = (CY * escena.clientHeight - lado / 2) + 'px';
   document.getElementById('vMarco').textContent = pctMarco() + '%';
 }
+
+// El toque o el arrastre sobre la imagen recolocan el recuadro.
+function moverMarcoA(evento) {
+  const r = escena.getBoundingClientRect();
+  CX = (evento.clientX - r.left) / r.width;
+  CY = (evento.clientY - r.top)  / r.height;
+  colocarMarco();
+  if (imagenFija) clasificar(imagenFija);
+}
+
+let arrastrando = false;
+escena.addEventListener('pointerdown', e => {
+  arrastrando = true;
+  escena.setPointerCapture(e.pointerId);
+  moverMarcoA(e);
+  e.preventDefault();
+});
+escena.addEventListener('pointermove', e => { if (arrastrando) moverMarcoA(e); });
+escena.addEventListener('pointerup',     e => { arrastrando = false; });
+escena.addEventListener('pointercancel', e => { arrastrando = false; });
+
+document.getElementById('bCentrar').addEventListener('click', () => {
+  CX = 0.5; CY = 0.5;
+  colocarMarco();
+  if (imagenFija) clasificar(imagenFija);
+});
 
 // Toma el cuadro actual del video a resolucion nativa
 function cuadroActual() {
@@ -472,7 +525,7 @@ function cuadroActual() {
 
 function clasificar(imagen) {
   if (!MODELO || !imagen) return;
-  const r = imagenAVector(imagen, pctMarco());
+  const r = imagenAVector(imagen, pctMarco(), CX, CY);
   const av = document.getElementById('avisoCamara');
   if (r.error) {
     av.className = 'aviso malo'; av.textContent = r.error; av.classList.remove('oculto');
