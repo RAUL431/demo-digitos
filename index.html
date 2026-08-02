@@ -102,7 +102,7 @@
     <button id="bSeguir" class="sec oculto">Seguir</button>
     <button id="bCentrar" class="sec">Centrar</button>
     <label class="et">Recuadro
-      <input type="range" id="cMarco" min="20" max="95" value="50">
+      <input type="range" id="cMarco" min="5" max="95" value="50">
       <span id="vMarco">50%</span></label>
   </div>
 
@@ -315,10 +315,20 @@ function imagenAVector(imagen, recortePct, fx, fy) {
   }
   const umbral = otsu(hist, W * W);
 
-  // La tinta es la clase minoritaria: el trazo siempre ocupa menos que el papel.
-  let nOscuros = 0;
-  for (let s = 0; s < W * W; s++) if (gris[s] <= umbral) nOscuros++;
-  const tintaEsOscura = nOscuros <= W * W / 2;
+  // La polaridad se deduce del BORDE del recorte, no de que clase sea
+  // minoritaria. Con un recuadro pequeno y ajustado al digito la tinta puede
+  // llegar a ocupar mas de la mitad de la imagen, y entonces la regla de la
+  // minoria se invierte y todo falla; en cambio la orilla del recorte sigue
+  // siendo papel.
+  let bordeOscuro = 0, bordeTotal = 0;
+  const anillo = Math.max(2, Math.round(W * 0.06));
+  for (let y = 0; y < W; y++) for (let x = 0; x < W; x++) {
+    if (x < anillo || y < anillo || x >= W - anillo || y >= W - anillo) {
+      bordeTotal++;
+      if (gris[y * W + x] <= umbral) bordeOscuro++;
+    }
+  }
+  const tintaEsOscura = bordeOscuro <= bordeTotal / 2;
   let mask = new Uint8Array(W * W);
   for (let s = 0; s < W * W; s++) {
     mask[s] = (tintaEsOscura ? (gris[s] <= umbral) : (gris[s] > umbral)) ? 1 : 0;
